@@ -1,4 +1,4 @@
-package main
+package autosplitfile
 
 import (
 	"fmt"
@@ -9,27 +9,27 @@ import (
 	"strings"
 )
 
-type AutoSplitFileOptions struct {
+type FileOptions struct {
 	pathPrefix    string
 	bufferedLines int
 	maxSize       int
 	maxTime       string
 }
 
-type AutoSplitFile struct {
+type File struct {
 	pathPrefix      string
 	maxSize         int
 	maxTime         time.Duration
 	actualFile      *os.File
 	occurredError   error
-	waitFileLine    chan []byte
+	waitWriteData   chan []byte
 	waitSyncRoutine chan struct{}
 }
 
 const timeLayout = "20060102-15-04"
 const sequenceStart = 1
 
-func NewAutoSplitFile(options *AutoSplitFileOptions) (fp *AutoSplitFile, err error) {
+func New(options *FileOptions) (fp *File, err error) {
 	maxTime, err := time.ParseDuration(options.maxTime)
 	if err != nil {
 		return
@@ -38,7 +38,7 @@ func NewAutoSplitFile(options *AutoSplitFileOptions) (fp *AutoSplitFile, err err
 		maxTime = time.Minute
 	}
 
-	fp = &AutoSplitFile{
+	fp = &File{
 		path.Clean(options.pathPrefix),
 		options.maxSize,
 		maxTime,
@@ -54,12 +54,12 @@ func NewAutoSplitFile(options *AutoSplitFileOptions) (fp *AutoSplitFile, err err
 			close(fp.waitSyncRoutine)
 		}()
 
-		for line := range fp.waitFileLine {
+		for data := range fp.waitWriteData {
 			if fp.occurredError != nil {
 				continue
 			}
 
-			err := fp.writeFileLine(line)
+			err := fp.writeDataToActualFile(data)
 			if err != nil {
 				fp.occurredError = err
 			}
@@ -69,27 +69,27 @@ func NewAutoSplitFile(options *AutoSplitFileOptions) (fp *AutoSplitFile, err err
 	return
 }
 
-func (fp *AutoSplitFile) Write(p []byte) (n int, err error) {
+func (fp *File) Write(p []byte) (n int, err error) {
 	if fp.occurredError != nil {
 		return 0, fp.occurredError
 	}
 
-	fp.waitFileLine <- p
+	fp.waitWriteData <- p
 	return len(p), nil
 }
 
-func (fp *AutoSplitFile) Close() error {
-	close(fp.waitFileLine)
+func (fp *File) Close() error {
+	close(fp.waitWriteData)
 	<-fp.waitSyncRoutine
 	return fp.actualFile.Close()
 }
 
-func (fp *AutoSplitFile) refreshLogFile() (err error) {
+func (fp *File) refreshActualFile() (err error) {
 	var expectedFilename string
 
 	if fp.actualFile != nil {
-		expectedFilename, err = fp.expectedLogFilePath()
-		if fp.currentLogFilePath() == expectedFilename {
+		expectedFilename, err = fp.expectedActualFilePath()
+		if fp.currentActualFilePath() == expectedFilename {
 			return
 		} else {
 			err = fp.actualFile.Close()
@@ -100,25 +100,25 @@ func (fp *AutoSplitFile) refreshLogFile() (err error) {
 			fp.actualFile = nil
 		}
 	} else {
-		expectedFilename = fp.buildLogFilePath(time.Now(), sequenceStart)
+		expectedFilename = fp.buildActualFilePath(time.Now(), sequenceStart)
 	}
 
 	fp.actualFile, err = os.OpenFile(expectedFilename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	return
 }
 
-func (fp *AutoSplitFile) currentLogFilePath() string {
+func (fp *File) currentActualFilePath() string {
 	return path.Clean(fp.actualFile.Name())
 }
 
-func (fp *AutoSplitFile) buildLogFilePath(time time.Time, seq int) string {
+func (fp *File) buildActualFilePath(time time.Time, seq int) string {
 	// the log file name is in this format: prefix.20060102-15-04.0001 .
 	return fmt.Sprintf("%s.%s.%04d", fp.pathPrefix, time.Local().Format(timeLayout), seq)
 }
 
-func (fp *AutoSplitFile) expectedLogFilePath() (res string, err error) {
+func (fp *File) expectedActualFilePath() (res string, err error) {
 	// extract time and sequence number from current filename.
-	filePath := fp.currentLogFilePath()
+	filePath := fp.currentActualFilePath()
 	suffix := strings.TrimPrefix(filePath, fp.pathPrefix+".")
 	parts := strings.Split(suffix, ".")
 	timePart := parts[0]
@@ -152,12 +152,12 @@ func (fp *AutoSplitFile) expectedLogFilePath() (res string, err error) {
 		}
 	}
 
-	res = fp.buildLogFilePath(expectedTime, expectedSeq)
+	res = fp.buildActualFilePath(expectedTime, expectedSeq)
 	return
 }
 
-func (fp *AutoSplitFile) writeFileLine(p []byte) (err error) {
-	err = fp.refreshLogFile()
+func (fp *File) writeDataToActualFile(p []byte) (err error) {
+	err = fp.refreshActualFile()
 	if err != nil {
 		return
 	}
