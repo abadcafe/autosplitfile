@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 	"strings"
+	"bytes"
 )
 
 type FileOptions struct {
@@ -74,7 +75,7 @@ func (fp *File) Write(p []byte) (n int, err error) {
 		return 0, fp.occurredError
 	}
 
-	fp.waitWriteData <- p
+	fp.waitWriteData <- bytes.Repeat(p, 1)
 	return len(p), nil
 }
 
