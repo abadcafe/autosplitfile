@@ -10,10 +10,10 @@ import (
 )
 
 type FileOptions struct {
-	pathPrefix    string
-	bufferedLines int
-	maxSize       int
-	maxTime       string
+	PathPrefix    string
+	BufferedLines int
+	MaxSize       int
+	MaxTime       string
 }
 
 type File struct {
@@ -30,7 +30,7 @@ const timeLayout = "20060102-15-04"
 const sequenceStart = 1
 
 func New(options *FileOptions) (fp *File, err error) {
-	maxTime, err := time.ParseDuration(options.maxTime)
+	maxTime, err := time.ParseDuration(options.MaxTime)
 	if err != nil {
 		return
 	} else if maxTime < time.Minute {
@@ -39,12 +39,12 @@ func New(options *FileOptions) (fp *File, err error) {
 	}
 
 	fp = &File{
-		path.Clean(options.pathPrefix),
-		options.maxSize,
+		path.Clean(options.PathPrefix),
+		options.MaxSize,
 		maxTime,
 		nil,
 		nil,
-		make(chan []byte, options.bufferedLines),
+		make(chan []byte, options.BufferedLines),
 		make(chan struct{}),
 	}
 
