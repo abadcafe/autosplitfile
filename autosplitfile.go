@@ -112,9 +112,13 @@ func (fp *File) currentActualFilePath() string {
 	return path.Clean(fp.actualFile.Name())
 }
 
-func (fp *File) buildActualFilePath(time time.Time, seq int) string {
+func (fp *File) buildActualFilePath(t time.Time, seq int) string {
 	// the log file name is in this format: prefix.20060102-15-04.0001 .
-	return fmt.Sprintf("%s.%s.%04d", fp.pathPrefix, time.Local().Format(timeLayout), seq)
+	// Truncate() can only deal with UTC, so add the timezone offset before Truncate() and sub it after.
+	_, offsetSeconds := t.Local().Zone()
+	offsetDuration := time.Second * time.Duration(offsetSeconds)
+	t = t.Add(offsetDuration).Truncate(fp.maxTime).Add(-offsetDuration)
+	return fmt.Sprintf("%s.%s.%04d", fp.pathPrefix, t.Format(timeLayout), seq)
 }
 
 func (fp *File) expectedActualFilePath() (res string, err error) {
