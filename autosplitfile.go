@@ -62,6 +62,7 @@ func New(options *FileOptions) (fp *File, err error) {
 
 			err := fp.writeDataToActualFile(data)
 			if err != nil {
+				// todo: atomic write to the pointer
 				fp.occurredError = err
 			}
 		}
@@ -71,6 +72,7 @@ func New(options *FileOptions) (fp *File, err error) {
 }
 
 func (fp *File) Write(p []byte) (n int, err error) {
+	// todo: atomic read the pointer.
 	if fp.occurredError != nil {
 		return 0, fp.occurredError
 	}
