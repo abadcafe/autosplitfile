@@ -2,7 +2,7 @@
 
 auto split file for golang loggers
 
-##Example
+## Example
 
 with logrus:
 ```go
