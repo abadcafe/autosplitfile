@@ -1,10 +1,11 @@
 # autosplitfile
+
 auto split file for golang loggers
 
-Example
+##Example
 
 with logrus:
-<pre>
+```go
 	logFile, err := autosplitfile.New(&autosplitfile.FileOptions{
 		PathPrefix:    "./the-log.log",
 		BufferedLines: 4096,
@@ -18,4 +19,4 @@ with logrus:
 
 	logrus.SetOutput(logFile)
 	logrus.RegisterExitHandler(func() { logFile.Close() })
-</pre>
+```
