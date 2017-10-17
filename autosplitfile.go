@@ -13,17 +13,22 @@ import (
 type FileOptions struct {
 	PathPrefix    string
 	BufferedLines int
-	MaxSize       int
+	MaxSize       int64
 	MaxTime       string
+}
+
+type record struct {
+	time time.Time
+	data []byte
 }
 
 type File struct {
 	pathPrefix      string
-	maxSize         int
+	maxSize         int64
 	maxTime         time.Duration
 	actualFile      *os.File
 	occurredError   error
-	waitWriteData   chan []byte
+	waitWriteRecord chan *record
 	waitSyncRoutine chan struct{}
 }
 
@@ -45,7 +50,7 @@ func New(options *FileOptions) (fp *File, err error) {
 		maxTime,
 		nil,
 		nil,
-		make(chan []byte, options.BufferedLines),
+		make(chan *record, options.BufferedLines),
 		make(chan struct{}),
 	}
 
@@ -55,12 +60,12 @@ func New(options *FileOptions) (fp *File, err error) {
 			close(fp.waitSyncRoutine)
 		}()
 
-		for data := range fp.waitWriteData {
+		for rec := range fp.waitWriteRecord {
 			if fp.occurredError != nil {
 				continue
 			}
 
-			err := fp.writeDataToActualFile(data)
+			err := fp.writeRecordToActualFile(rec)
 			if err != nil {
 				// todo: atomic write to the pointer
 				fp.occurredError = err
@@ -77,21 +82,21 @@ func (fp *File) Write(p []byte) (n int, err error) {
 		return 0, fp.occurredError
 	}
 
-	fp.waitWriteData <- bytes.Repeat(p, 1)
+	fp.waitWriteRecord <- &record{time.Now(), bytes.Repeat(p, 1)}
 	return len(p), nil
 }
 
 func (fp *File) Close() error {
-	close(fp.waitWriteData)
+	close(fp.waitWriteRecord)
 	<-fp.waitSyncRoutine
 	return fp.actualFile.Close()
 }
 
-func (fp *File) refreshActualFile() (err error) {
+func (fp *File) refreshActualFile(currentRecordTime time.Time, increasingSize int) (err error) {
 	var expectedFilename string
 
 	if fp.actualFile != nil {
-		expectedFilename, err = fp.expectedActualFilePath()
+		expectedFilename, err = fp.expectedActualFilePath(currentRecordTime, increasingSize)
 		if fp.currentActualFilePath() == expectedFilename {
 			return
 		} else {
@@ -103,7 +108,7 @@ func (fp *File) refreshActualFile() (err error) {
 			fp.actualFile = nil
 		}
 	} else {
-		expectedFilename = fp.buildActualFilePath(time.Now(), sequenceStart)
+		expectedFilename = fp.buildActualFilePath(currentRecordTime, sequenceStart)
 	}
 
 	fp.actualFile, err = os.OpenFile(expectedFilename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
@@ -123,7 +128,7 @@ func (fp *File) buildActualFilePath(t time.Time, seq int) string {
 	return fmt.Sprintf("%s.%s.%04d", fp.pathPrefix, t.Format(timeLayout), seq)
 }
 
-func (fp *File) expectedActualFilePath() (res string, err error) {
+func (fp *File) expectedActualFilePath(currentRecordTime time.Time, increasingSize int) (res string, err error) {
 	// extract time and sequence number from current filename.
 	filePath := fp.currentActualFilePath()
 	suffix := strings.TrimPrefix(filePath, fp.pathPrefix+".")
@@ -145,16 +150,15 @@ func (fp *File) expectedActualFilePath() (res string, err error) {
 	expectedTime := fileTime
 	expectedSeq := fileSeq
 
-	now := time.Now()
-	if fp.maxTime < now.Sub(fileTime) {
-		expectedTime = now
+	if currentRecordTime.Sub(fileTime) > fp.maxTime  {
+		expectedTime = currentRecordTime
 		expectedSeq = sequenceStart
 	} else {
 		var info os.FileInfo
 		info, err = fp.actualFile.Stat()
 		if err != nil {
 			return
-		} else if info.Size() >= int64(fp.maxSize) {
+		} else if info.Size() + int64(increasingSize) >= fp.maxSize {
 			expectedSeq++
 		}
 	}
@@ -163,14 +167,14 @@ func (fp *File) expectedActualFilePath() (res string, err error) {
 	return
 }
 
-func (fp *File) writeDataToActualFile(p []byte) (err error) {
-	err = fp.refreshActualFile()
+func (fp *File) writeRecordToActualFile(record *record) (err error) {
+	err = fp.refreshActualFile(record.time, len(record.data))
 	if err != nil {
 		return
 	}
 
-	ret, err := fp.actualFile.Write(p)
-	if err == nil && ret < len(p) {
+	ret, err := fp.actualFile.Write(record.data)
+	if err == nil && ret < len(record.data) {
 		// unlikely, but should care.
 		err = fmt.Errorf("written length less than expected")
 	}
